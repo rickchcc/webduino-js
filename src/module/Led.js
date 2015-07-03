@@ -95,6 +95,65 @@
       checkPinState(this, this._pin, this._pin.value, callback);
     }
   };
+  /*
+   * @name blink
+   * @method blink(interval, callback) 
+   * @method blink(interval)
+   * @method blink(callback)
+   * @param {number} interval milliseconds, the blinking interval
+   * @param {function} callback executed when led start to blink
+   * @desc default interval is 1000 milliseconds
+   */
+  proto.blink = function(interval, callback){
+      if(typeof interval == 'function'){
+          callback = interval;
+          interval = 1000
+      }
+      var self = this;
+      var spec;
+      if(self._blink)
+          spec = self._blink;
+      else 
+          spec = self._blink = {};
+
+      spec.interval = interval;
+      if(!callback){
+          return;
+      }
+      spec.enabled = true;
+
+      function tictoc(){
+          if(!spec.enabled)
+              return;
+          self.toggle(function(){
+              callback.apply(this, arguments);
+              var remain = spec.ts + spec.interval - Date.now();
+              if(remain > 0){
+                  setTimeout(function(){
+                      spec.ts = Date.now();
+                      tictoc();
+                  }, remain);
+              } else {
+                  spec.ts = Date.now();
+                  tictoc();
+              }
+          });
+      }
+      //avoid blocking
+      setTimeout(tictoc.bind(self), 0);
+  }
+
+  /*
+   * @name unblink
+   * @desc turn blinking mode off
+   */
+  proto.unblink = function(){
+      var self = this;
+      if(self._blink){
+          self._blink.enabled = false;
+          delete self._blink;
+      }
+  }
 
   Led.SOURCE_DRIVE = 0;
   Led.SYNC_DRIVE = 1;
