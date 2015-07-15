@@ -76,6 +76,7 @@
   });
 
   proto.on = function (callback) {
+      this._stopBlink();
     this._pin.value = this._onValue;
     if (typeof callback === 'function') {
       checkPinState(this, this._pin, this._pin.value, callback);
@@ -83,6 +84,7 @@
   };
 
   proto.off = function (callback) {
+      this._stopBlink();
     this._pin.value = this._offValue;
     if (typeof callback === 'function') {
       checkPinState(this, this._pin, this._pin.value, callback);
@@ -90,68 +92,84 @@
   };
 
   proto.toggle = function (callback) {
-    this._pin.value = 1 - this._pin.value;
-    if (typeof callback === 'function') {
-      checkPinState(this, this._pin, this._pin.value, callback);
-    }
+      if(this._blink){
+          this.off();
+      } else {
+          this._pin.value = 1 - this._pin.value;
+          if (typeof callback === 'function') {
+              checkPinState(this, this._pin, this._pin.value, callback);
+          }
+      }
   };
   /*
    * @name blink
    * @method blink(interval, callback) 
    * @method blink(interval)
    * @method blink(callback)
+   * @method blink()
    * @param {number} interval milliseconds, the blinking interval
    * @param {function} callback executed when led start to blink
    * @desc default interval is 1000 milliseconds
    */
   proto.blink = function(interval, callback){
+      if(!arguments.length){
+          interval = 1000;
+      }
       if(typeof interval == 'function'){
           callback = interval;
-          interval = 1000
+          interval = 1000;
       }
       var self = this;
       var spec;
-      if(self._blink)
+      if(self._blink){
           spec = self._blink;
-      else 
+      } else {
           spec = self._blink = {};
+      }
 
+      spec.enabled = true;
       spec.interval = interval;
+
       if(!callback){
           return;
       }
-      spec.enabled = true;
+
+      //avoid of multiple calling
+      if(spec.tout){
+          clearTimeout(spec.tout);
+          delete spec.tout;
+      }
 
       function tictoc(){
-          if(!spec.enabled)
-              return;
-          self.toggle(function(){
-              callback.apply(this, arguments);
-              var remain = spec.ts + spec.interval - Date.now();
-              if(remain > 0){
-                  setTimeout(function(){
-                      spec.ts = Date.now();
-                      tictoc();
-                  }, remain);
-              } else {
-                  spec.ts = Date.now();
-                  tictoc();
-              }
-          });
+          self._pin.value = 1 - self._pin.value;
+          if (typeof callback === 'function') {
+              checkPinState(self, self._pin, self._pin.value, function(){
+                  callback.apply(self, arguments);
+                  if(spec.enabled) {
+                      spec.tout = setTimeout(function(){
+                          tictoc();
+                      }, spec.interval);
+                  }
+              });
+          }
+          
       }
-      //avoid blocking
-      setTimeout(tictoc.bind(self), 0);
+      tictoc();
   }
 
   /*
-   * @name unblink
+   * @name stopBlink
    * @desc turn blinking mode off
    */
-  proto.unblink = function(){
-      var self = this;
-      if(self._blink){
-          self._blink.enabled = false;
-          delete self._blink;
+  proto.stopBlink = function(){
+      this.off();
+  }
+  proto._stopBlink = function(){
+      if(this._blink){
+          clearTimeout(this._blink.tout);
+          this._blink.enabled = false;
+          delete this._blink.tout;
+          delete this._blink;
       }
   }
 
