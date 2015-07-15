@@ -14,6 +14,12 @@
   var BUZZER_MESSAGE = [0x04, 0x07],
     TONE_MIN_LENGTH = 100;
 
+  var BUZZER_STATE = {
+    PLAYING: 'playing',
+    STOPPED: 'stopped',
+    PAUSED: 'paused'
+  };
+
   var FREQUENCY = {
     REST: 0,
     B0: 31,
@@ -112,20 +118,43 @@
 
     this._board = board;
     this._pin = pin;
-  }
-
-  function calculateDelay(n, durations) {
-    var d = 0;
-
-    for (var i = 0; i < n; i++) {
-      d += (getDuration(durations[i]) + Buzzer.TONE_DELAY);
-    }
-    return d;
+    this._timer = null;
+    this._sequence = null;
+    this._state = BUZZER_STATE.STOPPED;
   }
 
   function getDuration(duration) {
     duration = isNaN(duration = parseInt(duration)) ? TONE_MIN_LENGTH : duration;
     return Math.max(duration, TONE_MIN_LENGTH);
+  }
+
+  function padDurations(durations, len) {
+    var durLen = durations.length,
+      dur = durLen ? durations[durLen - 1] : TONE_MIN_LENGTH;
+
+    if (durLen < len) {
+      durations = durations.concat(new Array(len - durLen));
+      for (var i = durLen; i < durations.length; i++) {
+        durations[i] = dur;
+      }
+    }
+
+    return durations;
+  }
+
+  function playNext(self) {
+    var seq = self._sequence,
+      note;
+
+    if (seq && seq.length > 0) {
+      note = seq.pop();
+      self.tone(note.frequency, note.duration);
+      self._timer = setTimeout(function () {
+        playNext(self);
+      }, note.duration + Buzzer.TONE_DELAY);
+    } else {
+      self.stop();
+    }
   }
 
   Buzzer.prototype = proto = Object.create(Module.prototype, {
@@ -150,19 +179,53 @@
   };
 
   proto.play = function (notes, tempos) {
-    var self = this,
-      len = notes.length,
-      durations = (util.isArray(tempos) ? tempos : []).map(function (t) {
-        return 1000 / t;
-      });
+    if (typeof notes !== 'undefined') {
+      var len = notes.length,
+        durations = padDurations(
+          (util.isArray(tempos) ? tempos : []).map(function (t) {
+            return getDuration(1000 / t);
+          }), len
+        );
 
-    for (var i = 0; i < len; i++) {
-      setTimeout((function (d) {
-        return function () {
-          self.tone(FREQUENCY[notes[d].toUpperCase()], durations[d]);
-        };
-      }(i)), calculateDelay(i, durations));
+      this.stop();
+      this._sequence = [];
+      for (var i = len - 1; i >= 0; i--) {
+        this._sequence.push({
+          frequency: FREQUENCY[notes[i].toUpperCase()],
+          duration: durations[i]
+        });
+      }
+    } else {
+      if (this._state === BUZZER_STATE.PLAYING) {
+        return;
+      }
     }
+
+    this._state = BUZZER_STATE.PLAYING;
+    playNext(this);
+  };
+
+  proto.pause = function () {
+    if (this._state !== BUZZER_STATE.PLAYING) {
+      return;
+    }
+
+    if (this._timer) {
+      clearTimeout(this._timer);
+      delete this._timer;
+    }
+
+    this._state = BUZZER_STATE.PAUSED;
+  };
+
+  proto.stop = function () {
+    if (this._timer) {
+      clearTimeout(this._timer);
+      delete this._timer;
+    }
+
+    delete this._sequence;
+    this._state = BUZZER_STATE.STOPPED;
   };
 
   Buzzer.FREQUENCY = FREQUENCY;
